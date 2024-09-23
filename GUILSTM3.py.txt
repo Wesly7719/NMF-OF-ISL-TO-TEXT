@@ -1,0 +1,142 @@
+from tkinter import *
+from tensorflow.keras.models import load_model
+import cv2
+import numpy as np
+import os
+from matplotlib import pyplot as plt
+import time
+import mediapipe as mp
+from gtts import gTTS
+import playsound
+from playsound import playsound
+window = Tk()
+window.title("ISL project")
+window.configure(width=500, height=300)
+window.geometry("500x300")
+frame1 = Frame(window)
+label1 = Label(window, text="INDIAN SIGN LANGUAGE TRANSLATOR", fg="red")
+label1.pack()
+label2 = Label(window, text="(A Translator that can recognize ISL gestures)", fg="blue")
+label2.pack()
+label3 = Label(window, text="Press start button to turn on videocapture and v(key on keyboard) to stop capture", fg="blue")
+label3.pack()
+la = Label(window, text="")
+la.pack()
+
+sample_text = Entry(window)
+sample_text.pack()
+
+
+mp_holistic = mp.solutions.holistic     # Holistic model
+mp_drawing = mp.solutions.drawing_utils # Drawing utilities
+
+def mediapipe_detection(image, model):
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) # COLOR CONVERSION BGR 2 RGB
+    image.flags.writeable = False                  # Image is no longer writeable
+    results = model.process(image)                 # Make prediction,this is actually detection
+    image.flags.writeable = True                   # Image is now writeable 
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # COLOR COVERSION RGB 2 BGR
+    return image, results
+
+def draw_styled_landmarks(image, results):
+    # Draw face connections
+    mp_drawing.draw_landmarks(image, results.face_landmarks, mp_holistic.FACEMESH_TESSELATION, 
+                             mp_drawing.DrawingSpec(color=(80,110,10), thickness=1, circle_radius=1), 
+                             mp_drawing.DrawingSpec(color=(80,256,121), thickness=1, circle_radius=1)
+                             ) 
+    # Draw pose connections
+    mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS,
+                             mp_drawing.DrawingSpec(color=(80,22,10), thickness=2, circle_radius=4), 
+                             mp_drawing.DrawingSpec(color=(80,44,121), thickness=2, circle_radius=2)
+                             ) 
+    # Draw left hand connections
+    mp_drawing.draw_landmarks(image, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS, 
+                             mp_drawing.DrawingSpec(color=(121,22,76), thickness=2, circle_radius=4), 
+                             mp_drawing.DrawingSpec(color=(121,44,250), thickness=2, circle_radius=2)
+                             ) 
+    # Draw right hand connections  
+    mp_drawing.draw_landmarks(image, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS, 
+                             mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=4), 
+                             mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2)
+                             ) 
+
+def extract_keypoints(results):
+    pose = np.array([[res.x, res.y, res.z, res.visibility] for res in results.pose_landmarks.landmark]).flatten() if results.pose_landmarks else np.zeros(33*4)
+    face = np.array([[res.x, res.y, res.z] for res in results.face_landmarks.landmark]).flatten() if results.face_landmarks else np.zeros(468*3)
+    lh = np.array([[res.x, res.y, res.z] for res in results.left_hand_landmarks.landmark]).flatten() if results.left_hand_landmarks else np.zeros(21*3)
+    rh = np.array([[res.x, res.y, res.z] for res in results.right_hand_landmarks.landmark]).flatten() if results.right_hand_landmarks else np.zeros(21*3)
+    return np.concatenate([pose,face,lh, rh])
+
+cap = cv2.VideoCapture(0)
+model_test = load_model(r"C:\Users\SANDHYA\Downloads\LSTM_New_Data (1).h5")
+actions = np.array(['asthma','breath','ECG','fever','headache','Hello','I am fine','thank you','welcome','all the best'])
+
+
+def start_video():
+    cap = cv2.VideoCapture(0)
+    with mp_holistic.Holistic(min_detection_confidence=0.05, min_tracking_confidence=0.05) as holistic:
+        sequence=[]
+        threshold = 0.8
+        count=0
+        while count<30:
+            ret,frame = cap.read()
+            if ret:
+                #frame = cv2.resize(frame, (960,540))
+                image, results =  mediapipe_detection(frame, holistic)
+                draw_styled_landmarks(image,results)
+                cv2.imshow('video',image)
+                keypoints = extract_keypoints(results)
+                sequence.append(keypoints)
+                if cv2.waitKey(10) & 0xFF == ord('v'):
+                    break
+                print(count)
+                count=count+1
+            else:
+                break  
+        sequence = sequence[-30:]
+    cap.release()
+    #out.release()
+    cv2.destroyAllWindows()
+
+    res = model_test.predict(np.expand_dims(sequence, axis=0))[0]
+    print(actions[np.argmax(res)])
+    if res[np.argmax(res)] > 0.4:
+        sample_text.insert(0,list(actions[np.argmax(res)]))
+        tts = gTTS(actions[np.argmax(res)])
+        tts.save('output.mp3')
+        playsound('output.mp3')
+    else:
+        sample_text.insert(0,'No Sign Detected')
+        tts = gTTS(actions[np.argmax(res)])
+        tts.save('output.mp3')
+        playsound('output.mp3')
+
+
+
+def stop_video():
+    cap.release()
+    sample_text.delete(0, END)
+    #frames = os.listdir(os.getcwd())
+    #count=len(frames)
+    #framen="C:/Users/snb/Documents/projects/sign-language-gesture-recognition-master/islliveframes/"
+    #lastFrame=cv2.imread(framen+"mphands_frame"+str(count-1)+".jpeg")
+    #while count<201:
+        #framename="C:/Users/gadda/Downloads/projects/sign-language-gesture-recognition-master/islliveframes/mphands_frame"+str(count)+".jpeg"
+        #count=count+1
+        #count=count+1
+        #cv2.imwrite(framename, lastFrame)
+    #sample_text.insert(0,"stopped")
+
+
+
+Button(window,text='Start video', command = start_video).pack()
+Button(window,text='Stop video', command = stop_video).pack()
+
+
+winWidth = window.winfo_reqwidth()
+winwHeight = window.winfo_reqheight()
+posRight = int(window.winfo_screenwidth() / 2 - winWidth / 2)
+posDown = int(window.winfo_screenheight() / 2 - winwHeight / 2)
+window.geometry("+{}+{}".format(posRight, posDown))
+window.mainloop()
+
